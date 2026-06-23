@@ -1,0 +1,946 @@
+{
+  "name": "Master AI Agent - Orchestrator",
+  "id": "a89722b2-9aeb-46fb-adb1-777c8fe0f96a",
+  "nodes": [
+    {
+      "id": "a0d4493f-a73b-4637-9534-6ac99f10d737",
+      "name": "Receive Employee Request",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [
+        100,
+        300
+      ],
+      "webhookId": "ea0f0383-bded-4ff6-8524-df2a605c2a35",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "orchestrator/request",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "b2be77d6-aae4-4e21-bb98-cf04d204ee16",
+      "name": "Extract Request",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        300,
+        300
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "991fee44-2ac6-4093-a7b0-440cc64e6acb",
+              "name": "request_id",
+              "value": "={{ $json.body.request_id }}",
+              "type": "string"
+            },
+            {
+              "id": "745d48d0-988a-4e63-8eec-9ae1df4febf8",
+              "name": "user",
+              "value": "={{ $json.body.user }}",
+              "type": "string"
+            },
+            {
+              "id": "bc32dd20-ddcb-4375-8bcf-397d257ce093",
+              "name": "role",
+              "value": "={{ $json.body.role }}",
+              "type": "string"
+            },
+            {
+              "id": "33a5570f-1385-4c8b-9acb-0cdc5f4b3573",
+              "name": "message",
+              "value": "={{ $json.body.message }}",
+              "type": "string"
+            },
+            {
+              "id": "74285883-2998-4a86-9956-51007edc90f9",
+              "name": "session_id",
+              "value": "={{ $json.body.session_id }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "f33b0338-e27c-4262-a2b2-9f38bcb64ba9",
+      "name": "Validate API Key",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        300
+      ],
+      "parameters": {
+        "jsCode": "\nconst apiKey = $json.headers?.['x-api-key'] || $json.body?.api_key;\nconst expected = $env.ORCHESTRATOR_API_KEY;\nif (apiKey !== expected) {\n  return [{ json: { valid: false, error: 'Invalid API key' } }];\n}\nreturn [{ json: {\n  valid: true,\n  request_id: $json.body.request_id,\n  user: $json.body.user,\n  role: $json.body.role,\n  message: $json.body.message,\n  session_id: $json.body.session_id\n} }];\n"
+      }
+    },
+    {
+      "id": "24991168-6bbf-4c12-983b-c19f06bb1a30",
+      "name": "Auth Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        700,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "12f1ebd8-f6f5-4bd0-bb08-1fb30ca9e408",
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "67a5f6a3-ec5c-4667-9279-9f60986a355a",
+      "name": "Set 401",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        700,
+        520
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "56598a7f-4954-4c3a-b8d0-a0d90d03cc17",
+              "name": "status",
+              "value": "error",
+              "type": "string"
+            },
+            {
+              "id": "d0afad31-0c1c-4534-a318-7563e5825656",
+              "name": "message",
+              "value": "Unauthorized: invalid API key",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "18034650-8b28-45ac-850a-f72faf074eed",
+      "name": "Respond 401",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        900,
+        520
+      ],
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {}
+      }
+    },
+    {
+      "id": "0eaf6639-ecc8-4248-ac18-2099f1c29837",
+      "name": "Prepare Audit Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        900,
+        300
+      ],
+      "parameters": {
+        "jsCode": "\nconst ctx = $input.first().json;\nconst body = JSON.stringify({\n  request_id: ctx.request_id,\n  user: ctx.user,\n  event_type: \"request_received\",\n  payload: { message: ctx.message },\n  risk_level: \"pending\",\n  metadata: { request_id: ctx.request_id, user: ctx.user, role: ctx.role, message: ctx.message, session_id: ctx.session_id }\n});\nreturn [{ json: { body } }];\n"
+      }
+    },
+    {
+      "id": "af622fdf-0b9b-482b-8ff7-fe67914d9003",
+      "name": "Audit Request to Security Agent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1100,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.N8N_WEBHOOK_URL }}/agent/security",
+        "options": {},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.body }}"
+      }
+    },
+    {
+      "id": "33bac53c-93e4-42aa-b8c3-663319716dbd",
+      "name": "Recover Context After Audit",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1300,
+        300
+      ],
+      "parameters": {
+        "jsCode": "\nconst input = $input.first().json;\nconst metadata = input.metadata || {};\nreturn [{ json: metadata }];\n"
+      }
+    },
+    {
+      "id": "f0f0ae43-79df-4147-9f76-351d9d3f1144",
+      "name": "Prepare Memory Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1500,
+        300
+      ],
+      "parameters": {
+        "jsCode": "\nconst ctx = $input.first().json;\nconst body = JSON.stringify({\n  operation: \"memory_get\",\n  session_id: ctx.session_id,\n  user_id: ctx.user,\n  metadata: { request_id: ctx.request_id, user: ctx.user, role: ctx.role, message: ctx.message, session_id: ctx.session_id }\n});\nreturn [{ json: { ...ctx, body } }];\n"
+      }
+    },
+    {
+      "id": "ab9b3dec-a3e0-42ae-8e33-cacbb06e14a9",
+      "name": "Fetch Memory",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1700,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.N8N_WEBHOOK_URL }}/agent/database",
+        "options": {},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.body }}"
+      }
+    },
+    {
+      "id": "ceea191e-c379-46be-82d5-c4374d097da2",
+      "name": "Merge Memory & Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1900,
+        300
+      ],
+      "parameters": {
+        "jsCode": "\nconst input = $input.first().json;\nconst metadata = input.metadata || {};\nconst memory = input.memory || [];\nreturn [{ json: { ...metadata, memory } }];\n"
+      }
+    },
+    {
+      "id": "5b11ca92-4471-443a-b083-72da2b4c75c0",
+      "name": "Prepare Classification Prompt",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2100,
+        300
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "6bb071d5-a116-4685-a134-de16e8cd8b66",
+              "name": "prompt",
+              "value": "={{ `Employee request: ${$json.message}\n\nConversation memory: ${JSON.stringify($json.memory)}\n\nAnalyze intent, select the appropriate specialized agent(s), and determine risk level and whether human approval is required.` }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "921d14af-fcc3-4719-b301-e9a48088d9be",
+      "name": "Classify Intent & Select Agents",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1,
+      "position": [
+        2300,
+        300
+      ],
+      "parameters": {
+        "resource": "chat",
+        "operation": "create",
+        "model": "gpt-4o-mini",
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "You are the Master AI Agent (Orchestrator) for an enterprise AI automation platform.\nYou receive natural language requests from employees.\nYour job is to understand the request, select the appropriate specialized agent(s), and determine risk and approval requirements.\n\nAvailable specialized agents:\n- HR Agent: leave requests, employee information lookup, HR document generation, attendance inquiries, policy lookup, HR report generation.\n- IT Support Agent: ticket creation, ticket categorization, user account requests, password reset workflows, software access requests, hardware asset tracking, IT reporting.\n- Finance Agent: expense request processing, budget inquiries, invoice management, financial reporting, payment tracking, financial analytics.\n- Procurement Agent: purchase request creation, vendor information retrieval, procurement workflow management, purchase order tracking, procurement reporting.\n- Email Agent: read emails, categorize emails, extract tasks, generate draft responses, send emails, route emails, follow-up tracking.\n- Database Agent: query databases, create records, update records, delete records, generate database reports, validate data integrity.\n- Reporting Agent: daily, weekly, monthly reports, KPI reports, department performance, executive dashboards, AI-generated recommendations.\n- Notification Agent: send notifications, Teams notifications, email alerts, workflow reminders, approval reminders, escalation alerts.\n- Knowledge Agent: company policy search, internal documentation search, SOP retrieval, FAQ answering, knowledge base management.\n- Security & Compliance Agent: monitor security events, audit user activities, compliance validation, access monitoring, risk detection, security reporting.\n\nRules:\n- The following always require human approval and should be flagged as high-risk: employee termination, salary modifications, financial approvals, budget approvals, payment authorizations, procurement approvals above threshold, vendor onboarding approval, legal/contract approvals, high-risk operational decisions.\n- The AI may recommend but must never make final decisions on these.\n- If the request spans multiple departments, select multiple agents.\n- Return ONLY a valid JSON object with these exact keys:\n  intent_summary (string),\n  selected_agents (array of agent names),\n  risk_level (one of low, medium, high),\n  human_approval_required (boolean),\n  parameters (object with extracted parameters),\n  reasoning (string)."
+            },
+            {
+              "role": "user",
+              "content": "={{ $json.prompt }}"
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.2,
+          "maxTokens": 1200
+        }
+      },
+      "credentials": {
+        "openAiApi": {
+          "id": "OPENAI_CREDENTIAL",
+          "name": "OpenAI API"
+        }
+      }
+    },
+    {
+      "id": "f8e8a847-a65e-4119-9533-80ab94635149",
+      "name": "Parse Classification",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2500,
+        300
+      ],
+      "parameters": {
+        "jsCode": "\nconst raw = $json.message?.content || $json.choices?.[0]?.message?.content || $json;\nlet parsed = {};\ntry {\n  parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;\n} catch (e) {\n  parsed = {\n    intent_summary: 'unknown',\n    selected_agents: ['knowledge'],\n    risk_level: 'low',\n    human_approval_required: false,\n    parameters: {},\n    reasoning: 'Failed to parse LLM output; routing to Knowledge Agent.'\n  };\n}\nconst ctx = $input.first().json;\nreturn [{ json: {\n  ...ctx,\n  ...parsed,\n  requires_approval: parsed.human_approval_required ? 'true' : 'false'\n}}];\n"
+      }
+    },
+    {
+      "id": "ce9e88e6-2079-483b-8380-0242242e556b",
+      "name": "Requires Manager Approval?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2700,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "0bed82a6-b157-4eb7-8596-139a7191907e",
+              "leftValue": "={{ $json.requires_approval }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "494d5032-bb6a-46d5-8db8-247155815054",
+      "name": "Escalation Response",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2700,
+        520
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "06be6f6f-ad35-4d90-9c5b-bdbae49b15dd",
+              "name": "status",
+              "value": "pending_approval",
+              "type": "string"
+            },
+            {
+              "id": "0aeaa3cc-675a-44a0-bc0c-106315b69589",
+              "name": "response",
+              "value": "={{ `Your request has been escalated to a manager for approval. Risk level: ${$json.risk_level}. Reasoning: ${$json.reasoning}` }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "f4488f8f-1eda-4512-b6cd-1032ca0b202c",
+      "name": "Notify Manager",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2900,
+        520
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.N8N_WEBHOOK_URL }}/agent/notification",
+        "options": {},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ request_id: $json.request_id, user: $json.user, role: $json.role, platform: \"teams\", recipients: [\"manager@example.com\"], subject: \"Approval Required\", message: $json.response, metadata: { request_id: $json.request_id, user: $json.user, role: $json.role, message: $json.message } }) }}"
+      }
+    },
+    {
+      "id": "d5871ea3-9adf-4417-8f5c-56ab6e0fcba3",
+      "name": "Respond Pending Approval",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        3100,
+        520
+      ],
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {}
+      }
+    },
+    {
+      "id": "0a7be1d9-abae-4b6c-8d47-e26f1871e6ca",
+      "name": "Prepare Coordinator Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2900,
+        300
+      ],
+      "parameters": {
+        "jsCode": "\nconst ctx = $input.first().json;\nconst body = JSON.stringify({\n  selected_agents: ctx.selected_agents,\n  payload: { original_message: ctx.message, parameters: ctx.parameters },\n  metadata: { request_id: ctx.request_id, user: ctx.user, role: ctx.role, session_id: ctx.session_id, message: ctx.message }\n});\nreturn [{ json: { body } }];\n"
+      }
+    },
+    {
+      "id": "9244618a-001f-4f56-935e-10a354e09dc0",
+      "name": "Call Multi-Agent Coordinator",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3100,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.N8N_WEBHOOK_URL }}/agent/coordinator",
+        "options": {},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.body }}"
+      }
+    },
+    {
+      "id": "13aa1d31-8bbe-4010-bf3d-7172d795673c",
+      "name": "Parse Coordinator Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3300,
+        300
+      ],
+      "parameters": {
+        "jsCode": "\nconst input = $input.first().json;\nconst metadata = input.metadata || {};\nconst results = input.results || {};\nreturn [{ json: { ...metadata, results } }];\n"
+      }
+    },
+    {
+      "id": "1716c24e-774a-460f-80f6-dec4c1b31449",
+      "name": "Prepare Synthesis Prompt",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        3500,
+        300
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "002c3f37-9267-48e0-8311-ca87231b463c",
+              "name": "prompt",
+              "value": "={{ `Original employee request: ${$json.message}\n\nResults from specialized agents: ${JSON.stringify($json.results)}\n\nSynthesize a clear, helpful response. Include status, any pending approvals, and next steps.` }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "878c3eca-f026-4618-bf98-afc2d74592fa",
+      "name": "Synthesize Final Response",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1,
+      "position": [
+        3700,
+        300
+      ],
+      "parameters": {
+        "resource": "chat",
+        "operation": "create",
+        "model": "gpt-4o-mini",
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "You are the Master AI Agent. Synthesize a clear, helpful response for the employee based on the results from specialized agents. Include status, any pending approvals, and next steps. Be concise and professional."
+            },
+            {
+              "role": "user",
+              "content": "={{ $json.prompt }}"
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.2,
+          "maxTokens": 1200
+        }
+      },
+      "credentials": {
+        "openAiApi": {
+          "id": "OPENAI_CREDENTIAL",
+          "name": "OpenAI API"
+        }
+      }
+    },
+    {
+      "id": "ca893f27-bdc2-478c-993a-87d986ab56a2",
+      "name": "Parse Final Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3900,
+        300
+      ],
+      "parameters": {
+        "jsCode": "\nconst raw = $json.message?.content || $json.choices?.[0]?.message?.content || $json;\nconst ctx = $input.first().json;\nreturn [{ json: { ...ctx, response: raw } }];\n"
+      }
+    },
+    {
+      "id": "8a39424a-dc8b-40b0-b880-ac3a9b92c748",
+      "name": "Prepare Save Memory",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4100,
+        300
+      ],
+      "parameters": {
+        "jsCode": "\nconst ctx = $input.first().json;\nconst body = JSON.stringify({\n  operation: \"memory_save\",\n  session_id: ctx.session_id,\n  user_id: ctx.user,\n  message: ctx.message,\n  response: ctx.response,\n  metadata: { request_id: ctx.request_id, user: ctx.user, role: ctx.role, session_id: ctx.session_id }\n});\nreturn [{ json: { ...ctx, body } }];\n"
+      }
+    },
+    {
+      "id": "012069bc-1aa0-40b8-ba7a-325d76d39a49",
+      "name": "Save Memory",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4300,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.N8N_WEBHOOK_URL }}/agent/database",
+        "options": {},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.body }}"
+      }
+    },
+    {
+      "id": "dd2aa8f6-c19d-4b2b-b19c-d5204bf655f1",
+      "name": "Prepare Final Audit",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4500,
+        300
+      ],
+      "parameters": {
+        "jsCode": "\nconst ctx = $input.first().json;\nconst body = JSON.stringify({\n  request_id: ctx.request_id,\n  user: ctx.user,\n  event_type: \"final_response\",\n  payload: { response: ctx.response },\n  risk_level: \"low\",\n  metadata: { request_id: ctx.request_id, user: ctx.user, role: ctx.role, message: ctx.message, session_id: ctx.session_id }\n});\nreturn [{ json: { ...ctx, body } }];\n"
+      }
+    },
+    {
+      "id": "0a0b1153-cadb-4b10-bb2d-d4c166d48042",
+      "name": "Audit Final Response",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        4700,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.N8N_WEBHOOK_URL }}/agent/security",
+        "options": {},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.body }}"
+      }
+    },
+    {
+      "id": "c50aebd3-83d3-44af-a79e-17e4ae616f11",
+      "name": "Final Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4900,
+        300
+      ],
+      "parameters": {
+        "jsCode": "\nconst ctx = $input.first().json;\nreturn [{ json: { request_id: ctx.request_id, status: \"success\", response: ctx.response } }];\n"
+      }
+    },
+    {
+      "id": "baf2617b-3fd8-4070-bd52-31450143072f",
+      "name": "Respond to Employee",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        5100,
+        300
+      ],
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Receive Employee Request": {
+      "main": [
+        [
+          {
+            "node": "Extract Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Request": {
+      "main": [
+        [
+          {
+            "node": "Validate API Key",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate API Key": {
+      "main": [
+        [
+          {
+            "node": "Auth Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Auth Valid?": {
+      "main": [
+        [
+          {
+            "node": "Prepare Audit Request",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Set 401",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set 401": {
+      "main": [
+        [
+          {
+            "node": "Respond 401",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Audit Request": {
+      "main": [
+        [
+          {
+            "node": "Audit Request to Security Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Audit Request to Security Agent": {
+      "main": [
+        [
+          {
+            "node": "Recover Context After Audit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recover Context After Audit": {
+      "main": [
+        [
+          {
+            "node": "Prepare Memory Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Memory Request": {
+      "main": [
+        [
+          {
+            "node": "Fetch Memory",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Memory": {
+      "main": [
+        [
+          {
+            "node": "Merge Memory & Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge Memory & Context": {
+      "main": [
+        [
+          {
+            "node": "Prepare Classification Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Classification Prompt": {
+      "main": [
+        [
+          {
+            "node": "Classify Intent & Select Agents",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify Intent & Select Agents": {
+      "main": [
+        [
+          {
+            "node": "Parse Classification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Classification": {
+      "main": [
+        [
+          {
+            "node": "Requires Manager Approval?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Requires Manager Approval?": {
+      "main": [
+        [
+          {
+            "node": "Escalation Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Coordinator Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Escalation Response": {
+      "main": [
+        [
+          {
+            "node": "Notify Manager",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify Manager": {
+      "main": [
+        [
+          {
+            "node": "Respond Pending Approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Coordinator Request": {
+      "main": [
+        [
+          {
+            "node": "Call Multi-Agent Coordinator",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Multi-Agent Coordinator": {
+      "main": [
+        [
+          {
+            "node": "Parse Coordinator Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Synthesis Prompt": {
+      "main": [
+        [
+          {
+            "node": "Synthesize Final Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Synthesize Final Response": {
+      "main": [
+        [
+          {
+            "node": "Parse Final Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Final Response": {
+      "main": [
+        [
+          {
+            "node": "Prepare Save Memory",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Save Memory": {
+      "main": [
+        [
+          {
+            "node": "Save Memory",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Memory": {
+      "main": [
+        [
+          {
+            "node": "Prepare Final Audit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Final Audit": {
+      "main": [
+        [
+          {
+            "node": "Audit Final Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Audit Final Response": {
+      "main": [
+        [
+          {
+            "node": "Final Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Final Response": {
+      "main": [
+        [
+          {
+            "node": "Respond to Employee",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    "master",
+    "orchestrator"
+  ],
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "instanceId": "3c58832f-70be-47ef-ba77-11c5cbad09e2"
+  }
+}

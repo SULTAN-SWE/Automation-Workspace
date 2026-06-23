@@ -1,0 +1,164 @@
+{
+  "name": "Notification Agent - Specialized Agent",
+  "id": "67e31ebf-db27-488e-8f49-491a6ce1574d",
+  "nodes": [
+    {
+      "id": "f15ea3d8-6eba-4336-b7b1-23754ecc2377",
+      "name": "Notification Agent Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [
+        100,
+        300
+      ],
+      "webhookId": "c839c065-bf3c-42e9-b9d3-33a581135aae",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "agent/notification",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "03b5351c-73c7-4318-ad6e-2bf3d6d5d86e",
+      "name": "Extract Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        300,
+        300
+      ],
+      "parameters": {
+        "jsCode": "\nconst body = $json.body || $json;\nreturn [{ json: {\n  request_id: body.request_id,\n  user: body.user,\n  platform: body.platform || 'email',\n  recipients: body.recipients || [],\n  subject: body.subject,\n  message: body.message,\n  metadata: body.metadata || {}\n}}];\n"
+      }
+    },
+    {
+      "id": "530fa2a4-b38b-4398-aa19-b4baf6e71c4f",
+      "name": "Prepare Notification Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        300
+      ],
+      "parameters": {
+        "jsCode": "\nconst ctx = $input.first().json;\nconst body = JSON.stringify({\n  request_id: ctx.request_id,\n  user: ctx.user,\n  platform: ctx.platform,\n  recipients: ctx.recipients,\n  subject: ctx.subject,\n  message: ctx.message,\n  metadata: ctx.metadata\n});\nreturn [{ json: { body } }];\n"
+      }
+    },
+    {
+      "id": "6dc3f2dc-b29c-45cf-be93-8715376db3b0",
+      "name": "Send Notification Backend",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        700,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.BACKEND_API_URL }}/api/notification/send",
+        "options": {},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.body }}"
+      }
+    },
+    {
+      "id": "b8205ffa-1f7a-4fdc-83f3-e8816d8823f0",
+      "name": "Format Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        900,
+        300
+      ],
+      "parameters": {
+        "jsCode": "\nconst input = $input.first().json;\nreturn [{ json: { status: input.status || 'sent', metadata: input.metadata || {} } }];\n"
+      }
+    },
+    {
+      "id": "04a39561-fac7-42d6-84a0-575600d41c5e",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1100,
+        300
+      ],
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Notification Agent Trigger": {
+      "main": [
+        [
+          {
+            "node": "Extract Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Input": {
+      "main": [
+        [
+          {
+            "node": "Prepare Notification Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Notification Request": {
+      "main": [
+        [
+          {
+            "node": "Send Notification Backend",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Notification Backend": {
+      "main": [
+        [
+          {
+            "node": "Format Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Response": {
+      "main": [
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    "notification",
+    "agent"
+  ],
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "instanceId": "4d6c0ff3-0996-4422-89ac-66c0f48a984f"
+  }
+}

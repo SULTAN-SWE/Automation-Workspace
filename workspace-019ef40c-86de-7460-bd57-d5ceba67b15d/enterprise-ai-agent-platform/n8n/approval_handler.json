@@ -1,0 +1,193 @@
+{
+  "name": "Approval Handler",
+  "id": "1ee3edfa-c010-4b1f-b17e-4bb51ada5366",
+  "nodes": [
+    {
+      "id": "3e7bf1df-5942-46f3-b95c-dad6cbf41155",
+      "name": "Approval Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [
+        100,
+        300
+      ],
+      "webhookId": "57cfa88d-df46-449c-8ddc-a685a021dffe",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "approval/action",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "1816528e-ba57-4eee-996c-4c2fab7edd09",
+      "name": "Extract Approval",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        300,
+        300
+      ],
+      "parameters": {
+        "jsCode": "\nconst body = $json.body || $json;\nreturn [{ json: {\n  approval_id: body.approval_id,\n  decision: body.decision,\n  manager_id: body.manager_id,\n  metadata: body.metadata || {}\n}}];\n"
+      }
+    },
+    {
+      "id": "1b00dd4f-2494-4fd8-9985-d278521c47c7",
+      "name": "Resolve Approval",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        500,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.BACKEND_API_URL }}/api/approval/resolve",
+        "options": {},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ approval_id: $json.approval_id, decision: $json.decision, manager_id: $json.manager_id, metadata: $json.metadata }) }}"
+      }
+    },
+    {
+      "id": "97d449d4-3fdc-45b1-9f10-08885053a295",
+      "name": "Prepare Notification",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        700,
+        300
+      ],
+      "parameters": {
+        "jsCode": "\nconst input = $input.first().json;\nconst status = input.status || input.decision;\nconst ctx = input.metadata || {};\nreturn [{ json: {\n  request_id: ctx.request_id,\n  user: ctx.user,\n  role: ctx.role,\n  platform: \"email\",\n  recipients: [ctx.user || \"employee@example.com\"],\n  subject: `Approval ${status}`,\n  message: input.message || `Your approval request ${ctx.approval_id} was ${status}.`,\n  metadata: ctx\n}}];\n"
+      }
+    },
+    {
+      "id": "91b41352-10b0-4dc0-a243-586d159eafe3",
+      "name": "Notify Employee",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        900,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.N8N_WEBHOOK_URL }}/agent/notification",
+        "options": {},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ request_id: $json.request_id, user: $json.user, role: $json.role, platform: $json.platform, recipients: $json.recipients, subject: $json.subject, message: $json.message, metadata: $json.metadata }) }}"
+      }
+    },
+    {
+      "id": "d53e2d75-fb2f-40b8-abbf-0a5c85dc020a",
+      "name": "Approval Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        300
+      ],
+      "parameters": {
+        "jsCode": "\nconst ctx = $input.first().json;\nreturn [{ json: { status: \"resolved\", approval_id: ctx.approval_id, decision: ctx.decision, message: ctx.message } }];\n"
+      }
+    },
+    {
+      "id": "40aadcff-c31e-43ed-9b33-4c683f370ec5",
+      "name": "Respond to Manager",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1300,
+        300
+      ],
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Approval Webhook": {
+      "main": [
+        [
+          {
+            "node": "Extract Approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Approval": {
+      "main": [
+        [
+          {
+            "node": "Resolve Approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolve Approval": {
+      "main": [
+        [
+          {
+            "node": "Prepare Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Notification": {
+      "main": [
+        [
+          {
+            "node": "Notify Employee",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify Employee": {
+      "main": [
+        [
+          {
+            "node": "Approval Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approval Result": {
+      "main": [
+        [
+          {
+            "node": "Respond to Manager",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    "approval",
+    "hitl"
+  ],
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "instanceId": "93274d68-ffc5-478f-b7a0-023dd6fd1856"
+  }
+}

@@ -1,0 +1,38 @@
+version: "3.8"
+
+services:
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: n8n
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=admin
+      - N8N_BASIC_AUTH_PASSWORD=change-me-n8n-password
+      - N8N_WEBHOOK_URL=http://localhost:5678/webhook
+      - BACKEND_API_URL=http://host.docker.internal:8000
+      - ORCHESTRATOR_API_KEY=change-me-api-key
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - DB_TYPE=sqlite  # n8n internal DB; use Postgres/MySQL for production
+    volumes:
+      - n8n_data:/home/node/.n8n
+
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: sqlserver
+    restart: unless-stopped
+    ports:
+      - "1433:1433"
+    environment:
+      - ACCEPT_EULA=Y
+      - MSSQL_SA_PASSWORD=YourStrong@Passw0rd
+      - MSSQL_PID=Express
+    volumes:
+      - sql_data:/var/opt/mssql
+    # SQL Server requires at least 2 GB RAM; increase Docker Desktop resources if needed.
+
+volumes:
+  n8n_data:
+  sql_data:

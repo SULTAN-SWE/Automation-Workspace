@@ -1,0 +1,610 @@
+{
+  "name": "IT Support Agent - Specialized Agent",
+  "id": "46ae78ce-2e39-4701-b48d-8bf4d36feac5",
+  "nodes": [
+    {
+      "id": "ea0936c0-4345-44e0-ae01-02e833f51b37",
+      "name": "IT Support Agent Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [
+        100,
+        300
+      ],
+      "webhookId": "97074f1a-bba1-4a21-983a-efdb96dcdf21",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "agent/it",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "f316310a-c2ee-48fb-a6f8-f0b20b6aa643",
+      "name": "Extract Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        300,
+        300
+      ],
+      "parameters": {
+        "jsCode": "\nconst body = $json.body || $json;\nreturn [{ json: {\n  request_id: body.request_id,\n  user: body.user,\n  role: body.role,\n  session_id: body.session_id,\n  payload: body.payload || {},\n  metadata: body.metadata || {}\n}}];\n"
+      }
+    },
+    {
+      "id": "725f8893-3e99-449f-8ab4-d83cdfa2cee5",
+      "name": "Validate Permissions",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        300
+      ],
+      "parameters": {
+        "jsCode": "\nconst ctx = $input.first().json;\nconst allowed = true; // Extend with RBAC checks against $env.ALLOWED_ROLES\nreturn [{ json: { ...ctx, allowed: allowed ? 'true' : 'false' } }];\n"
+      }
+    },
+    {
+      "id": "41fd57bb-855d-4976-b714-d55da2dcb874",
+      "name": "Allowed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        700,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "e3a7756f-c1ad-48b4-ab11-c490a80b0100",
+              "leftValue": "={{ $json.allowed }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "05d83d55-20db-4e09-8c73-0dcaaae9107c",
+      "name": "Set 403",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        700,
+        520
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "14cc5710-45b9-4c60-b371-1a994960ec39",
+              "name": "status",
+              "value": "error",
+              "type": "string"
+            },
+            {
+              "id": "45f849df-fc3b-4419-b70f-16f5dece6e81",
+              "name": "message",
+              "value": "Forbidden: insufficient permissions",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "f5cfa519-59cc-4fd6-ad0c-4a06ce0cd1d2",
+      "name": "Respond 403",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        900,
+        520
+      ],
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {}
+      }
+    },
+    {
+      "id": "c120da85-ec49-4f94-8bc5-6d6f0666d46d",
+      "name": "Prepare Agent Prompt",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        900,
+        300
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "8f912a22-3a4d-475a-a097-1ef87339c715",
+              "name": "prompt",
+              "value": "={{ `Original request: ${$json.payload?.original_message || ''}\n\nExtracted parameters: ${JSON.stringify($json.payload?.parameters || {})}\n\nDetermine the action, parameters, and whether manager approval is required.` }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "b296bd7d-d878-4516-84d3-fb8be0aecc83",
+      "name": "IT Support Agent Reasoning",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1,
+      "position": [
+        1100,
+        300
+      ],
+      "parameters": {
+        "resource": "chat",
+        "operation": "create",
+        "model": "gpt-4o-mini",
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "You are the IT Support Agent for an enterprise AI automation platform.\nCapabilities: ticket creation, ticket categorization, user account requests, password reset workflows, software access requests, hardware asset tracking, IT reporting.\nActions that require manager approval before execution: none.\nGiven the request, return ONLY a valid JSON object with these exact keys:\n  action (one of: ticket, account, password, software, hardware, report),\n  parameters (object),\n  human_approval_required (boolean),\n  confidence (number 0-1),\n  response (string).\nIf the action requires approval, set human_approval_required to true."
+            },
+            {
+              "role": "user",
+              "content": "={{ $json.prompt }}"
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.2,
+          "maxTokens": 1200
+        }
+      },
+      "credentials": {
+        "openAiApi": {
+          "id": "OPENAI_CREDENTIAL",
+          "name": "OpenAI API"
+        }
+      }
+    },
+    {
+      "id": "e7371771-a190-42ad-b9de-d9460d666c9e",
+      "name": "Parse Decision",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1300,
+        300
+      ],
+      "parameters": {
+        "jsCode": "\nconst raw = $json.message?.content || $json.choices?.[0]?.message?.content || $json;\nlet parsed = {};\ntry {\n  parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;\n} catch (e) {\n  parsed = { action: 'report', parameters: {}, human_approval_required: false, confidence: 0, response: 'Could not parse reasoning.' };\n}\nconst ctx = $input.first().json;\nreturn [{ json: { ...ctx, ...parsed, requires_approval: parsed.human_approval_required ? 'true' : 'false' } }];\n"
+      }
+    },
+    {
+      "id": "6ba7daed-fc42-47ec-a7c2-0f6162eb4c0a",
+      "name": "Approval Required?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1500,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "951105ab-9272-460e-b169-4df634169533",
+              "leftValue": "={{ $json.requires_approval }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "efbb480a-f0e5-4234-82a7-2f48c28a92aa",
+      "name": "Create Approval Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1500,
+        520
+      ],
+      "parameters": {
+        "jsCode": "\nconst ctx = $input.first().json;\nconst body = JSON.stringify({\n  request_id: ctx.request_id,\n  requester_id: ctx.user,\n  agent: 'IT Support Agent',\n  action: ctx.action,\n  payload: ctx.parameters,\n  metadata: ctx.metadata\n});\nreturn [{ json: { ...ctx, body } }];\n"
+      }
+    },
+    {
+      "id": "cd54888b-5563-4672-a23f-9bd9e7130918",
+      "name": "Create Approval Backend",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1700,
+        520
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.BACKEND_API_URL }}/api/approval/create",
+        "options": {},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.body }}"
+      }
+    },
+    {
+      "id": "41b1b6ac-27ac-4ffb-ba75-778164239a81",
+      "name": "Prepare Manager Notification",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1900,
+        520
+      ],
+      "parameters": {
+        "jsCode": "\nconst input = $input.first().json;\nconst approval_id = input.approval_id || input.request_id;\nconst approval_url = `{{ $env.N8N_WEBHOOK_URL }}/approval/action?approval_id=${approval_id}&decision=approve&manager_id=manager`;\nconst ctx = input.metadata || {};\nreturn [{ json: {\n  request_id: ctx.request_id,\n  user: ctx.user,\n  role: ctx.role,\n  platform: \"teams\",\n  recipients: [\"manager@example.com\"],\n  subject: \"Approval Required\",\n  message: `Approval required for ${ctx.user}: ${input.action}. Approve: ${approval_url}`,\n  metadata: ctx\n}}];\n"
+      }
+    },
+    {
+      "id": "394e1080-94fe-4204-9fa7-33c60c1510f8",
+      "name": "Notify Manager",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2100,
+        520
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.N8N_WEBHOOK_URL }}/agent/notification",
+        "options": {},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ request_id: $json.request_id, user: $json.user, role: $json.role, platform: $json.platform, recipients: $json.recipients, subject: $json.subject, message: $json.message, metadata: $json.metadata }) }}"
+      }
+    },
+    {
+      "id": "561087ab-4d04-4361-b617-9a70ab1969de",
+      "name": "Pending Response",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2300,
+        520
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "40406ca7-fb72-4a84-8293-4b1c5c287d4e",
+              "name": "status",
+              "value": "pending_approval",
+              "type": "string"
+            },
+            {
+              "id": "ec81da34-69d0-4c86-858a-1418fd02ef03",
+              "name": "response",
+              "value": "={{ `Your request has been submitted for manager approval. You will be notified once it is reviewed.` }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "3642c9e3-4e38-49ed-acce-14e71092efda",
+      "name": "Respond Pending",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        2500,
+        520
+      ],
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {}
+      }
+    },
+    {
+      "id": "b293a5fa-3aae-4a2c-95b5-2344f812298f",
+      "name": "Prepare Tool Call",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1700,
+        300
+      ],
+      "parameters": {
+        "jsCode": "\nconst ctx = $input.first().json;\nconst body = JSON.stringify({\n  ...ctx.parameters,\n  request_id: ctx.request_id,\n  user: ctx.user,\n  role: ctx.role,\n  metadata: ctx.metadata\n});\nreturn [{ json: { ...ctx, body } }];\n"
+      }
+    },
+    {
+      "id": "712486f2-2787-4145-8b93-51a50ad32417",
+      "name": "Execute Tool",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1900,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.BACKEND_API_URL }}/api/it/{{ $json.action }}",
+        "options": {},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.body }}"
+      }
+    },
+    {
+      "id": "b8b54bd4-e900-420e-9d31-a7edb74d745d",
+      "name": "Format Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2100,
+        300
+      ],
+      "parameters": {
+        "jsCode": "\nconst input = $input.first().json;\nconst ctx = input.metadata || {};\nreturn [{ json: { request_id: ctx.request_id, agent: input.agent || 'HR', status: input.status || 'success', result: input.result || input, message: input.message || 'Completed' } }];\n"
+      }
+    },
+    {
+      "id": "ff0e912b-d57b-43be-b53f-d1e2c443ec27",
+      "name": "Respond Result",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        2300,
+        300
+      ],
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "IT Support Agent Trigger": {
+      "main": [
+        [
+          {
+            "node": "Extract Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Input": {
+      "main": [
+        [
+          {
+            "node": "Validate Permissions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Permissions": {
+      "main": [
+        [
+          {
+            "node": "Allowed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Allowed?": {
+      "main": [
+        [
+          {
+            "node": "Prepare Agent Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Set 403",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set 403": {
+      "main": [
+        [
+          {
+            "node": "Respond 403",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Agent Prompt": {
+      "main": [
+        [
+          {
+            "node": "IT Support Agent Reasoning",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IT Support Agent Reasoning": {
+      "main": [
+        [
+          {
+            "node": "Parse Decision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Decision": {
+      "main": [
+        [
+          {
+            "node": "Approval Required?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approval Required?": {
+      "main": [
+        [
+          {
+            "node": "Create Approval Request",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Tool Call",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Approval Request": {
+      "main": [
+        [
+          {
+            "node": "Create Approval Backend",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Approval Backend": {
+      "main": [
+        [
+          {
+            "node": "Prepare Manager Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Manager Notification": {
+      "main": [
+        [
+          {
+            "node": "Notify Manager",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify Manager": {
+      "main": [
+        [
+          {
+            "node": "Pending Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pending Response": {
+      "main": [
+        [
+          {
+            "node": "Respond Pending",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Tool Call": {
+      "main": [
+        [
+          {
+            "node": "Execute Tool",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Tool": {
+      "main": [
+        [
+          {
+            "node": "Format Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Result": {
+      "main": [
+        [
+          {
+            "node": "Respond Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    "it",
+    "agent"
+  ],
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "instanceId": "7df95910-8e24-4201-8811-b6cf26b8ac51"
+  }
+}

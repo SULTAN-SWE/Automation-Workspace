@@ -1,0 +1,270 @@
+{
+  "name": "Reporting Agent - Specialized Agent",
+  "id": "0d074296-e126-4282-9a4d-7e1f8b5691f5",
+  "nodes": [
+    {
+      "id": "bb3f6204-5c08-4b9f-9add-7205a5340e8d",
+      "name": "Reporting Agent Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [
+        100,
+        300
+      ],
+      "webhookId": "da4e9da6-ccf8-481a-bdd9-e4faf2d2afad",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "agent/reporting",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "2b3cb132-155d-4c47-8eb0-6c12d6975ce2",
+      "name": "Extract Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        300,
+        300
+      ],
+      "parameters": {
+        "jsCode": "\nconst body = $json.body || $json;\nreturn [{ json: { request_id: body.request_id, user: body.user, payload: body.payload || {}, metadata: body.metadata || {} } }];\n"
+      }
+    },
+    {
+      "id": "ecd24586-9a98-495a-9cc7-3afc775287bb",
+      "name": "Prepare Report Prompt",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        500,
+        300
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "be99d71b-04cc-46b1-91ef-42ee0f965e14",
+              "name": "prompt",
+              "value": "={{ `Original request: ${$json.payload?.original_message || ''}\n\nParameters: ${JSON.stringify($json.payload?.parameters || {})}\n\nDetermine the report type and parameters.` }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "85798d79-3970-45d9-bc6c-d7bf0cd75e9c",
+      "name": "Reporting Reasoning",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1,
+      "position": [
+        700,
+        300
+      ],
+      "parameters": {
+        "resource": "chat",
+        "operation": "create",
+        "model": "gpt-4o-mini",
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "You are the Reporting Agent for an enterprise AI automation platform.\nCapabilities: daily, weekly, monthly reports, KPI reports, department performance reports, executive dashboards, AI-generated recommendations.\nGiven the request, return ONLY a JSON object with keys: report_type (one of: daily, weekly, monthly, kpi, department, executive), parameters, response."
+            },
+            {
+              "role": "user",
+              "content": "={{ $json.prompt }}"
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.2,
+          "maxTokens": 1200
+        }
+      },
+      "credentials": {
+        "openAiApi": {
+          "id": "OPENAI_CREDENTIAL",
+          "name": "OpenAI API"
+        }
+      }
+    },
+    {
+      "id": "83f444aa-3de9-4f44-b6f7-f5c31a4be9ec",
+      "name": "Parse Report Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        900,
+        300
+      ],
+      "parameters": {
+        "jsCode": "\nconst raw = $json.message?.content || $json.choices?.[0]?.message?.content || $json;\nlet parsed = {};\ntry { parsed = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch (e) {}\nconst ctx = $input.first().json;\nreturn [{ json: { ...ctx, ...parsed } }];\n"
+      }
+    },
+    {
+      "id": "d94edd8e-cdb3-48da-87bd-8af05a4d0da0",
+      "name": "Prepare Report Backend",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        300
+      ],
+      "parameters": {
+        "jsCode": "\nconst ctx = $input.first().json;\nconst body = JSON.stringify({ ...ctx.parameters, report_type: ctx.report_type, request_id: ctx.request_id, user: ctx.user, metadata: ctx.metadata });\nreturn [{ json: { ...ctx, body } }];\n"
+      }
+    },
+    {
+      "id": "30bd5262-3824-4022-bb8c-6b4e8690cea1",
+      "name": "Generate Report",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1300,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.BACKEND_API_URL }}/api/reporting/{{ $json.report_type }}",
+        "options": {},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.body }}"
+      }
+    },
+    {
+      "id": "2e23c7eb-f0a7-4abb-bcc6-2ba65804b24e",
+      "name": "Format Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1500,
+        300
+      ],
+      "parameters": {
+        "jsCode": "\nconst input = $input.first().json;\nreturn [{ json: { request_id: input.metadata?.request_id, status: input.status || 'success', report: input.report || input } }];\n"
+      }
+    },
+    {
+      "id": "d2c02d20-dc8a-4504-bc2e-448ce87f9bc5",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1700,
+        300
+      ],
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Reporting Agent Trigger": {
+      "main": [
+        [
+          {
+            "node": "Extract Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Input": {
+      "main": [
+        [
+          {
+            "node": "Prepare Report Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Report Prompt": {
+      "main": [
+        [
+          {
+            "node": "Reporting Reasoning",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reporting Reasoning": {
+      "main": [
+        [
+          {
+            "node": "Parse Report Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Report Request": {
+      "main": [
+        [
+          {
+            "node": "Prepare Report Backend",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Report Backend": {
+      "main": [
+        [
+          {
+            "node": "Generate Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Report": {
+      "main": [
+        [
+          {
+            "node": "Format Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Response": {
+      "main": [
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    "reporting",
+    "agent"
+  ],
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "instanceId": "89c36ab2-779e-435a-89b0-0403317a9cc2"
+  }
+}

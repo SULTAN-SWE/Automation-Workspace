@@ -1,0 +1,164 @@
+{
+  "name": "Security & Compliance Agent - Specialized Agent",
+  "id": "b7041aba-e4e8-4ae3-9ec0-286183aadc44",
+  "nodes": [
+    {
+      "id": "ddd96b79-25fe-4a20-ad4a-5f1d477a79bc",
+      "name": "Security Agent Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [
+        100,
+        300
+      ],
+      "webhookId": "090e38ff-9d37-40f5-8a5d-55c11d2d93be",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "agent/security",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "8c591acf-d030-4206-ba21-f043c058b4ec",
+      "name": "Extract Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        300,
+        300
+      ],
+      "parameters": {
+        "jsCode": "\nconst body = $json.body || $json;\nreturn [{ json: {\n  request_id: body.request_id,\n  user: body.user,\n  event_type: body.event_type,\n  payload: body.payload || {},\n  risk_level: body.risk_level || 'low',\n  metadata: body.metadata || {}\n}}];\n"
+      }
+    },
+    {
+      "id": "9d67b4ec-eb44-4e87-94c8-f9668e149c90",
+      "name": "Prepare Audit Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        300
+      ],
+      "parameters": {
+        "jsCode": "\nconst ctx = $input.first().json;\nconst body = JSON.stringify({\n  request_id: ctx.request_id,\n  user: ctx.user,\n  event_type: ctx.event_type,\n  payload: ctx.payload,\n  risk_level: ctx.risk_level,\n  metadata: ctx.metadata\n});\nreturn [{ json: { body } }];\n"
+      }
+    },
+    {
+      "id": "739fe841-b5bd-4e34-a7e8-dc5587943138",
+      "name": "Log Audit",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        700,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.BACKEND_API_URL }}/api/security/audit",
+        "options": {},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.body }}"
+      }
+    },
+    {
+      "id": "40ff451f-9ad6-4ccf-82bb-80482a49e0c1",
+      "name": "Format Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        900,
+        300
+      ],
+      "parameters": {
+        "jsCode": "\nconst input = $input.first().json;\nreturn [{ json: { status: 'logged', audit_id: input.audit_id, metadata: input.metadata || {} } }];\n"
+      }
+    },
+    {
+      "id": "651fcc22-f0d4-45a5-8d4f-057e8cba7bda",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1100,
+        300
+      ],
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Security Agent Trigger": {
+      "main": [
+        [
+          {
+            "node": "Extract Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Input": {
+      "main": [
+        [
+          {
+            "node": "Prepare Audit Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Audit Request": {
+      "main": [
+        [
+          {
+            "node": "Log Audit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Audit": {
+      "main": [
+        [
+          {
+            "node": "Format Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Response": {
+      "main": [
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    "security",
+    "agent"
+  ],
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "instanceId": "cc8b7023-29c0-4765-957d-0376b218c7f8"
+  }
+}

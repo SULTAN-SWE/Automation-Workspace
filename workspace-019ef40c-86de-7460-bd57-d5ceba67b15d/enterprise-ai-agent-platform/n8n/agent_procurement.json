@@ -1,0 +1,610 @@
+{
+  "name": "Procurement Agent - Specialized Agent",
+  "id": "623a984d-2ad8-464b-ae78-cf1f91324ac4",
+  "nodes": [
+    {
+      "id": "9f21c7ef-1326-4039-aa3d-d0b0e3588d40",
+      "name": "Procurement Agent Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [
+        100,
+        300
+      ],
+      "webhookId": "78513653-1c01-4366-b7d4-24a990c49e11",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "agent/procurement",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "a202ab33-945c-4849-9194-765d388d5050",
+      "name": "Extract Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        300,
+        300
+      ],
+      "parameters": {
+        "jsCode": "\nconst body = $json.body || $json;\nreturn [{ json: {\n  request_id: body.request_id,\n  user: body.user,\n  role: body.role,\n  session_id: body.session_id,\n  payload: body.payload || {},\n  metadata: body.metadata || {}\n}}];\n"
+      }
+    },
+    {
+      "id": "b5bf5cd5-3eb7-4b03-a6b2-2efbdb8523ad",
+      "name": "Validate Permissions",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        300
+      ],
+      "parameters": {
+        "jsCode": "\nconst ctx = $input.first().json;\nconst allowed = true; // Extend with RBAC checks against $env.ALLOWED_ROLES\nreturn [{ json: { ...ctx, allowed: allowed ? 'true' : 'false' } }];\n"
+      }
+    },
+    {
+      "id": "7442e3cd-0c4c-46e3-9f85-d938b1b21540",
+      "name": "Allowed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        700,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "062829d1-ab62-4a6c-b327-589db7603448",
+              "leftValue": "={{ $json.allowed }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "728bad8c-98ec-4d9f-a574-46c6ab85982e",
+      "name": "Set 403",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        700,
+        520
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a5dc3a50-54b0-42b5-bf50-5283ad499084",
+              "name": "status",
+              "value": "error",
+              "type": "string"
+            },
+            {
+              "id": "77efb31c-d3c5-49e6-82b5-40f13f26b9e5",
+              "name": "message",
+              "value": "Forbidden: insufficient permissions",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "9ad25264-7872-44ff-b77c-fd9cf097755f",
+      "name": "Respond 403",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        900,
+        520
+      ],
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {}
+      }
+    },
+    {
+      "id": "d19d1027-8651-421f-920e-3a82613bb542",
+      "name": "Prepare Agent Prompt",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        900,
+        300
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "646de8cc-65e8-4c7d-a640-12e26467b9a4",
+              "name": "prompt",
+              "value": "={{ `Original request: ${$json.payload?.original_message || ''}\n\nExtracted parameters: ${JSON.stringify($json.payload?.parameters || {})}\n\nDetermine the action, parameters, and whether manager approval is required.` }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "f5795081-cce1-4ae8-90e4-1c4c837916f0",
+      "name": "Procurement Agent Reasoning",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1,
+      "position": [
+        1100,
+        300
+      ],
+      "parameters": {
+        "resource": "chat",
+        "operation": "create",
+        "model": "gpt-4o-mini",
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "You are the Procurement Agent for an enterprise AI automation platform.\nCapabilities: purchase request creation, vendor information retrieval, procurement workflow management, purchase order tracking, procurement reporting.\nActions that require manager approval before execution: purchase approvals above threshold, vendor onboarding approval.\nGiven the request, return ONLY a valid JSON object with these exact keys:\n  action (one of: purchase, vendor, workflow, po, report),\n  parameters (object),\n  human_approval_required (boolean),\n  confidence (number 0-1),\n  response (string).\nIf the action requires approval, set human_approval_required to true."
+            },
+            {
+              "role": "user",
+              "content": "={{ $json.prompt }}"
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.2,
+          "maxTokens": 1200
+        }
+      },
+      "credentials": {
+        "openAiApi": {
+          "id": "OPENAI_CREDENTIAL",
+          "name": "OpenAI API"
+        }
+      }
+    },
+    {
+      "id": "4e3c31f4-94d5-4834-9ff7-386973687b7b",
+      "name": "Parse Decision",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1300,
+        300
+      ],
+      "parameters": {
+        "jsCode": "\nconst raw = $json.message?.content || $json.choices?.[0]?.message?.content || $json;\nlet parsed = {};\ntry {\n  parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;\n} catch (e) {\n  parsed = { action: 'report', parameters: {}, human_approval_required: false, confidence: 0, response: 'Could not parse reasoning.' };\n}\nconst ctx = $input.first().json;\nreturn [{ json: { ...ctx, ...parsed, requires_approval: parsed.human_approval_required ? 'true' : 'false' } }];\n"
+      }
+    },
+    {
+      "id": "1ca47c1a-1ca4-4fdc-9adb-0fabb1e403c7",
+      "name": "Approval Required?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1500,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "dd12963a-89b4-4aea-b163-9d478c62f0aa",
+              "leftValue": "={{ $json.requires_approval }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "821422d6-7b69-4fb9-975f-3b54ecb5f7a3",
+      "name": "Create Approval Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1500,
+        520
+      ],
+      "parameters": {
+        "jsCode": "\nconst ctx = $input.first().json;\nconst body = JSON.stringify({\n  request_id: ctx.request_id,\n  requester_id: ctx.user,\n  agent: 'Procurement Agent',\n  action: ctx.action,\n  payload: ctx.parameters,\n  metadata: ctx.metadata\n});\nreturn [{ json: { ...ctx, body } }];\n"
+      }
+    },
+    {
+      "id": "afbde4ac-57cd-4280-bbee-1ab1b2c4d7d8",
+      "name": "Create Approval Backend",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1700,
+        520
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.BACKEND_API_URL }}/api/approval/create",
+        "options": {},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.body }}"
+      }
+    },
+    {
+      "id": "778d40f9-46b1-48ee-b64a-40d123128c10",
+      "name": "Prepare Manager Notification",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1900,
+        520
+      ],
+      "parameters": {
+        "jsCode": "\nconst input = $input.first().json;\nconst approval_id = input.approval_id || input.request_id;\nconst approval_url = `{{ $env.N8N_WEBHOOK_URL }}/approval/action?approval_id=${approval_id}&decision=approve&manager_id=manager`;\nconst ctx = input.metadata || {};\nreturn [{ json: {\n  request_id: ctx.request_id,\n  user: ctx.user,\n  role: ctx.role,\n  platform: \"teams\",\n  recipients: [\"manager@example.com\"],\n  subject: \"Approval Required\",\n  message: `Approval required for ${ctx.user}: ${input.action}. Approve: ${approval_url}`,\n  metadata: ctx\n}}];\n"
+      }
+    },
+    {
+      "id": "d44c06cb-ae67-4170-9b8c-feb031bb86ce",
+      "name": "Notify Manager",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2100,
+        520
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.N8N_WEBHOOK_URL }}/agent/notification",
+        "options": {},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ request_id: $json.request_id, user: $json.user, role: $json.role, platform: $json.platform, recipients: $json.recipients, subject: $json.subject, message: $json.message, metadata: $json.metadata }) }}"
+      }
+    },
+    {
+      "id": "b3a97797-e1f6-469b-bd00-e60460c7d2f5",
+      "name": "Pending Response",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2300,
+        520
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "4c9461f2-4e02-4021-abfc-dfc7ddc8b56d",
+              "name": "status",
+              "value": "pending_approval",
+              "type": "string"
+            },
+            {
+              "id": "69b2b076-e09f-4912-b890-777b1ecde645",
+              "name": "response",
+              "value": "={{ `Your request has been submitted for manager approval. You will be notified once it is reviewed.` }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "589df697-53bd-483e-b1ba-f6b5391e41c2",
+      "name": "Respond Pending",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        2500,
+        520
+      ],
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {}
+      }
+    },
+    {
+      "id": "0b2113e9-38ec-4b04-93c8-e0f8b9adc2d0",
+      "name": "Prepare Tool Call",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1700,
+        300
+      ],
+      "parameters": {
+        "jsCode": "\nconst ctx = $input.first().json;\nconst body = JSON.stringify({\n  ...ctx.parameters,\n  request_id: ctx.request_id,\n  user: ctx.user,\n  role: ctx.role,\n  metadata: ctx.metadata\n});\nreturn [{ json: { ...ctx, body } }];\n"
+      }
+    },
+    {
+      "id": "6eea3b9f-96fc-470c-a505-9cd45e935e17",
+      "name": "Execute Tool",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1900,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.BACKEND_API_URL }}/api/procurement/{{ $json.action }}",
+        "options": {},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.body }}"
+      }
+    },
+    {
+      "id": "e85a92bc-49a9-45b8-b4c5-9b9c8f6eb5dd",
+      "name": "Format Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2100,
+        300
+      ],
+      "parameters": {
+        "jsCode": "\nconst input = $input.first().json;\nconst ctx = input.metadata || {};\nreturn [{ json: { request_id: ctx.request_id, agent: input.agent || 'HR', status: input.status || 'success', result: input.result || input, message: input.message || 'Completed' } }];\n"
+      }
+    },
+    {
+      "id": "b4560087-eb4a-413e-833f-fe69035998e6",
+      "name": "Respond Result",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        2300,
+        300
+      ],
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Procurement Agent Trigger": {
+      "main": [
+        [
+          {
+            "node": "Extract Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Input": {
+      "main": [
+        [
+          {
+            "node": "Validate Permissions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Permissions": {
+      "main": [
+        [
+          {
+            "node": "Allowed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Allowed?": {
+      "main": [
+        [
+          {
+            "node": "Prepare Agent Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Set 403",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set 403": {
+      "main": [
+        [
+          {
+            "node": "Respond 403",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Agent Prompt": {
+      "main": [
+        [
+          {
+            "node": "Procurement Agent Reasoning",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Procurement Agent Reasoning": {
+      "main": [
+        [
+          {
+            "node": "Parse Decision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Decision": {
+      "main": [
+        [
+          {
+            "node": "Approval Required?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approval Required?": {
+      "main": [
+        [
+          {
+            "node": "Create Approval Request",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Tool Call",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Approval Request": {
+      "main": [
+        [
+          {
+            "node": "Create Approval Backend",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Approval Backend": {
+      "main": [
+        [
+          {
+            "node": "Prepare Manager Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Manager Notification": {
+      "main": [
+        [
+          {
+            "node": "Notify Manager",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify Manager": {
+      "main": [
+        [
+          {
+            "node": "Pending Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pending Response": {
+      "main": [
+        [
+          {
+            "node": "Respond Pending",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Tool Call": {
+      "main": [
+        [
+          {
+            "node": "Execute Tool",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Tool": {
+      "main": [
+        [
+          {
+            "node": "Format Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Result": {
+      "main": [
+        [
+          {
+            "node": "Respond Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    "procurement",
+    "agent"
+  ],
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "instanceId": "4ace7b4f-8004-4e1a-af3e-4b6288332a5b"
+  }
+}

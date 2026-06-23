@@ -1,0 +1,270 @@
+{
+  "name": "Knowledge Agent - Specialized Agent",
+  "id": "1bcc8ffe-6860-46ea-9bcc-fb71c2a0b290",
+  "nodes": [
+    {
+      "id": "9133d8ee-4956-46bb-9dc5-c922221ba776",
+      "name": "Knowledge Agent Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [
+        100,
+        300
+      ],
+      "webhookId": "ba94b475-e1bb-40f5-bcd7-f88c658df65e",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "agent/knowledge",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "3837a5d0-8381-40ad-84e5-8f9a11874aba",
+      "name": "Extract Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        300,
+        300
+      ],
+      "parameters": {
+        "jsCode": "\nconst body = $json.body || $json;\nreturn [{ json: { request_id: body.request_id, user: body.user, payload: body.payload || {}, metadata: body.metadata || {} } }];\n"
+      }
+    },
+    {
+      "id": "66247cd1-9a9c-4993-84d9-7411d92ffbc2",
+      "name": "Prepare Knowledge Prompt",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        500,
+        300
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "4852656c-9dd3-480c-b04d-7cecc2c33280",
+              "name": "prompt",
+              "value": "={{ `Original request: ${$json.payload?.original_message || ''}\n\nParameters: ${JSON.stringify($json.payload?.parameters || {})}\n\nDetermine the knowledge action and query.` }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "5939cbd7-ab4f-4f51-845e-4843425dc97e",
+      "name": "Knowledge Reasoning",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1,
+      "position": [
+        700,
+        300
+      ],
+      "parameters": {
+        "resource": "chat",
+        "operation": "create",
+        "model": "gpt-4o-mini",
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "You are the Knowledge Agent for an enterprise AI automation platform.\nData sources: SharePoint, internal documents, company knowledge base.\nCapabilities: company policy search, internal documentation search, SOP retrieval, FAQ answering, knowledge base management.\nGiven the request, return ONLY a JSON object with keys: action (search|answer|sop|faq), query (string), filters (object), response."
+            },
+            {
+              "role": "user",
+              "content": "={{ $json.prompt }}"
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.2,
+          "maxTokens": 1200
+        }
+      },
+      "credentials": {
+        "openAiApi": {
+          "id": "OPENAI_CREDENTIAL",
+          "name": "OpenAI API"
+        }
+      }
+    },
+    {
+      "id": "cf7e2310-1409-4a87-8fb0-dfe26d3aa17c",
+      "name": "Parse Action",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        900,
+        300
+      ],
+      "parameters": {
+        "jsCode": "\nconst raw = $json.message?.content || $json.choices?.[0]?.message?.content || $json;\nlet parsed = {};\ntry { parsed = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch (e) {}\nconst ctx = $input.first().json;\nreturn [{ json: { ...ctx, ...parsed } }];\n"
+      }
+    },
+    {
+      "id": "0fb4999f-f179-46a4-a9c6-0fdac491603a",
+      "name": "Prepare Knowledge Backend",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        300
+      ],
+      "parameters": {
+        "jsCode": "\nconst ctx = $input.first().json;\nconst body = JSON.stringify({ query: ctx.query, filters: ctx.filters, request_id: ctx.request_id, user: ctx.user, metadata: ctx.metadata });\nreturn [{ json: { ...ctx, body } }];\n"
+      }
+    },
+    {
+      "id": "1c9ce386-ec46-4b20-bcb8-435877c32242",
+      "name": "Execute Knowledge Search",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1300,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.BACKEND_API_URL }}/api/knowledge/{{ $json.action }}",
+        "options": {},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.body }}"
+      }
+    },
+    {
+      "id": "6b54ac15-4c08-456b-b325-8b74d219101a",
+      "name": "Format Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1500,
+        300
+      ],
+      "parameters": {
+        "jsCode": "\nconst input = $input.first().json;\nreturn [{ json: { request_id: input.metadata?.request_id, status: input.status || 'success', answer: input.answer || input.result || input } }];\n"
+      }
+    },
+    {
+      "id": "50029508-dcc4-4568-bdec-185babeab0c9",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1700,
+        300
+      ],
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Knowledge Agent Trigger": {
+      "main": [
+        [
+          {
+            "node": "Extract Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Input": {
+      "main": [
+        [
+          {
+            "node": "Prepare Knowledge Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Knowledge Prompt": {
+      "main": [
+        [
+          {
+            "node": "Knowledge Reasoning",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Knowledge Reasoning": {
+      "main": [
+        [
+          {
+            "node": "Parse Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Action": {
+      "main": [
+        [
+          {
+            "node": "Prepare Knowledge Backend",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Knowledge Backend": {
+      "main": [
+        [
+          {
+            "node": "Execute Knowledge Search",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Knowledge Search": {
+      "main": [
+        [
+          {
+            "node": "Format Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Response": {
+      "main": [
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    "knowledge",
+    "agent"
+  ],
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "instanceId": "ed44e6d9-9fe5-4806-a09b-9f541eae27f1"
+  }
+}

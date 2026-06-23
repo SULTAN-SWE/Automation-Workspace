@@ -1,0 +1,610 @@
+{
+  "name": "Finance Agent - Specialized Agent",
+  "id": "9d5369ff-3acc-4053-b586-7b0aff1cc6e0",
+  "nodes": [
+    {
+      "id": "dbdf3845-0af7-44e7-8acb-0940896dba86",
+      "name": "Finance Agent Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [
+        100,
+        300
+      ],
+      "webhookId": "e12cc825-bc19-418d-8299-fe4b260f6e3b",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "agent/finance",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "9a5adcf2-430e-4ffb-919e-ac6ec032ff4f",
+      "name": "Extract Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        300,
+        300
+      ],
+      "parameters": {
+        "jsCode": "\nconst body = $json.body || $json;\nreturn [{ json: {\n  request_id: body.request_id,\n  user: body.user,\n  role: body.role,\n  session_id: body.session_id,\n  payload: body.payload || {},\n  metadata: body.metadata || {}\n}}];\n"
+      }
+    },
+    {
+      "id": "80f713fe-6f45-4eeb-85d8-75443d6f5674",
+      "name": "Validate Permissions",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        300
+      ],
+      "parameters": {
+        "jsCode": "\nconst ctx = $input.first().json;\nconst allowed = true; // Extend with RBAC checks against $env.ALLOWED_ROLES\nreturn [{ json: { ...ctx, allowed: allowed ? 'true' : 'false' } }];\n"
+      }
+    },
+    {
+      "id": "5ca292ed-0269-4e2e-b455-c5738798c7a8",
+      "name": "Allowed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        700,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cd6fc972-fef5-48d0-b614-2e81f7aa2276",
+              "leftValue": "={{ $json.allowed }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "691b0d23-181b-42b3-b75a-b2f58678afed",
+      "name": "Set 403",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        700,
+        520
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "630a9009-2026-469a-933d-608610b26653",
+              "name": "status",
+              "value": "error",
+              "type": "string"
+            },
+            {
+              "id": "c499cd0e-261f-4c10-932a-0231e4986195",
+              "name": "message",
+              "value": "Forbidden: insufficient permissions",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "a9f5e385-2d1e-415d-a034-c2498d37d64a",
+      "name": "Respond 403",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        900,
+        520
+      ],
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {}
+      }
+    },
+    {
+      "id": "e5139f51-9a96-414d-92b8-72eae55c54fe",
+      "name": "Prepare Agent Prompt",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        900,
+        300
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "8d7b0d6a-9614-49fc-a476-8c99ccc5c673",
+              "name": "prompt",
+              "value": "={{ `Original request: ${$json.payload?.original_message || ''}\n\nExtracted parameters: ${JSON.stringify($json.payload?.parameters || {})}\n\nDetermine the action, parameters, and whether manager approval is required.` }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "978cba8e-829e-417b-93f8-1f259a06c8b3",
+      "name": "Finance Agent Reasoning",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1,
+      "position": [
+        1100,
+        300
+      ],
+      "parameters": {
+        "resource": "chat",
+        "operation": "create",
+        "model": "gpt-4o-mini",
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "You are the Finance Agent for an enterprise AI automation platform.\nCapabilities: expense request processing, budget inquiries, invoice management, financial reporting, payment tracking, financial analytics.\nActions that require manager approval before execution: financial approvals, budget approvals, payment authorizations.\nGiven the request, return ONLY a valid JSON object with these exact keys:\n  action (one of: expense, budget, invoice, report, payment, analytics),\n  parameters (object),\n  human_approval_required (boolean),\n  confidence (number 0-1),\n  response (string).\nIf the action requires approval, set human_approval_required to true."
+            },
+            {
+              "role": "user",
+              "content": "={{ $json.prompt }}"
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.2,
+          "maxTokens": 1200
+        }
+      },
+      "credentials": {
+        "openAiApi": {
+          "id": "OPENAI_CREDENTIAL",
+          "name": "OpenAI API"
+        }
+      }
+    },
+    {
+      "id": "ef05a322-e3b5-45c2-8068-55a42525d352",
+      "name": "Parse Decision",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1300,
+        300
+      ],
+      "parameters": {
+        "jsCode": "\nconst raw = $json.message?.content || $json.choices?.[0]?.message?.content || $json;\nlet parsed = {};\ntry {\n  parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;\n} catch (e) {\n  parsed = { action: 'report', parameters: {}, human_approval_required: false, confidence: 0, response: 'Could not parse reasoning.' };\n}\nconst ctx = $input.first().json;\nreturn [{ json: { ...ctx, ...parsed, requires_approval: parsed.human_approval_required ? 'true' : 'false' } }];\n"
+      }
+    },
+    {
+      "id": "046a4a21-9018-4aea-8cb1-e302def7b859",
+      "name": "Approval Required?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1500,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "528718f6-fab4-41d1-aab0-f8206b73047f",
+              "leftValue": "={{ $json.requires_approval }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "614f2c8e-68e8-43f5-84c3-92d615d8794a",
+      "name": "Create Approval Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1500,
+        520
+      ],
+      "parameters": {
+        "jsCode": "\nconst ctx = $input.first().json;\nconst body = JSON.stringify({\n  request_id: ctx.request_id,\n  requester_id: ctx.user,\n  agent: 'Finance Agent',\n  action: ctx.action,\n  payload: ctx.parameters,\n  metadata: ctx.metadata\n});\nreturn [{ json: { ...ctx, body } }];\n"
+      }
+    },
+    {
+      "id": "e7ae1156-f346-4a34-a929-1dc17670d0e3",
+      "name": "Create Approval Backend",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1700,
+        520
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.BACKEND_API_URL }}/api/approval/create",
+        "options": {},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.body }}"
+      }
+    },
+    {
+      "id": "8aebaa14-a733-4fde-b73a-9740373ded75",
+      "name": "Prepare Manager Notification",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1900,
+        520
+      ],
+      "parameters": {
+        "jsCode": "\nconst input = $input.first().json;\nconst approval_id = input.approval_id || input.request_id;\nconst approval_url = `{{ $env.N8N_WEBHOOK_URL }}/approval/action?approval_id=${approval_id}&decision=approve&manager_id=manager`;\nconst ctx = input.metadata || {};\nreturn [{ json: {\n  request_id: ctx.request_id,\n  user: ctx.user,\n  role: ctx.role,\n  platform: \"teams\",\n  recipients: [\"manager@example.com\"],\n  subject: \"Approval Required\",\n  message: `Approval required for ${ctx.user}: ${input.action}. Approve: ${approval_url}`,\n  metadata: ctx\n}}];\n"
+      }
+    },
+    {
+      "id": "fa395efd-96c7-4c53-8e13-b2cb3af2a1c4",
+      "name": "Notify Manager",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2100,
+        520
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.N8N_WEBHOOK_URL }}/agent/notification",
+        "options": {},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ request_id: $json.request_id, user: $json.user, role: $json.role, platform: $json.platform, recipients: $json.recipients, subject: $json.subject, message: $json.message, metadata: $json.metadata }) }}"
+      }
+    },
+    {
+      "id": "14a98972-9644-45d9-989e-6f3a318fa9c6",
+      "name": "Pending Response",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2300,
+        520
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "98447640-4b5d-4df6-a44e-2d325a8eb622",
+              "name": "status",
+              "value": "pending_approval",
+              "type": "string"
+            },
+            {
+              "id": "0db9a4df-7638-4647-ae48-66fc8c7485ce",
+              "name": "response",
+              "value": "={{ `Your request has been submitted for manager approval. You will be notified once it is reviewed.` }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "2709ccf8-1c94-44f9-9973-6630b643e5f8",
+      "name": "Respond Pending",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        2500,
+        520
+      ],
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {}
+      }
+    },
+    {
+      "id": "9ef75575-2293-4460-b600-0367fefd7dfb",
+      "name": "Prepare Tool Call",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1700,
+        300
+      ],
+      "parameters": {
+        "jsCode": "\nconst ctx = $input.first().json;\nconst body = JSON.stringify({\n  ...ctx.parameters,\n  request_id: ctx.request_id,\n  user: ctx.user,\n  role: ctx.role,\n  metadata: ctx.metadata\n});\nreturn [{ json: { ...ctx, body } }];\n"
+      }
+    },
+    {
+      "id": "6dc6f1f3-cb17-4716-b6bd-2fdfe64aca07",
+      "name": "Execute Tool",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1900,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.BACKEND_API_URL }}/api/finance/{{ $json.action }}",
+        "options": {},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.body }}"
+      }
+    },
+    {
+      "id": "7cf99f8e-8da8-4a2d-8a2b-d8951e2dca7e",
+      "name": "Format Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2100,
+        300
+      ],
+      "parameters": {
+        "jsCode": "\nconst input = $input.first().json;\nconst ctx = input.metadata || {};\nreturn [{ json: { request_id: ctx.request_id, agent: input.agent || 'HR', status: input.status || 'success', result: input.result || input, message: input.message || 'Completed' } }];\n"
+      }
+    },
+    {
+      "id": "b64bd3f9-d92d-42b0-bc7f-4c0cdd15ff89",
+      "name": "Respond Result",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        2300,
+        300
+      ],
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Finance Agent Trigger": {
+      "main": [
+        [
+          {
+            "node": "Extract Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Input": {
+      "main": [
+        [
+          {
+            "node": "Validate Permissions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Permissions": {
+      "main": [
+        [
+          {
+            "node": "Allowed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Allowed?": {
+      "main": [
+        [
+          {
+            "node": "Prepare Agent Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Set 403",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set 403": {
+      "main": [
+        [
+          {
+            "node": "Respond 403",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Agent Prompt": {
+      "main": [
+        [
+          {
+            "node": "Finance Agent Reasoning",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Finance Agent Reasoning": {
+      "main": [
+        [
+          {
+            "node": "Parse Decision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Decision": {
+      "main": [
+        [
+          {
+            "node": "Approval Required?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approval Required?": {
+      "main": [
+        [
+          {
+            "node": "Create Approval Request",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Tool Call",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Approval Request": {
+      "main": [
+        [
+          {
+            "node": "Create Approval Backend",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Approval Backend": {
+      "main": [
+        [
+          {
+            "node": "Prepare Manager Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Manager Notification": {
+      "main": [
+        [
+          {
+            "node": "Notify Manager",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify Manager": {
+      "main": [
+        [
+          {
+            "node": "Pending Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pending Response": {
+      "main": [
+        [
+          {
+            "node": "Respond Pending",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Tool Call": {
+      "main": [
+        [
+          {
+            "node": "Execute Tool",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Tool": {
+      "main": [
+        [
+          {
+            "node": "Format Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Result": {
+      "main": [
+        [
+          {
+            "node": "Respond Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    "finance",
+    "agent"
+  ],
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "instanceId": "b9b44e49-c9c6-47fb-8f40-ca941e7bca05"
+  }
+}

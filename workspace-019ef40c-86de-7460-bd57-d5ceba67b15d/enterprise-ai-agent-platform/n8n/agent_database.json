@@ -1,0 +1,164 @@
+{
+  "name": "Database Agent - Specialized Agent",
+  "id": "21e6e279-42ce-4b3f-8eca-c11171f3eebc",
+  "nodes": [
+    {
+      "id": "1802a47c-2638-4677-902a-93f074054533",
+      "name": "Database Agent Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [
+        100,
+        300
+      ],
+      "webhookId": "ea9941f5-cf8a-4cd9-9969-0c9fee59a1b6",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "agent/database",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "2e4d997a-fbc6-411e-ae62-d71ec998c49c",
+      "name": "Extract Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        300,
+        300
+      ],
+      "parameters": {
+        "jsCode": "\nconst body = $json.body || $json;\nreturn [{ json: {\n  operation: body.operation,\n  db_system: body.db_system || 'mssql',\n  session_id: body.session_id,\n  user_id: body.user_id,\n  table: body.table,\n  data: body.data || {},\n  where: body.where || {},\n  query: body.query,\n  metadata: body.metadata || {}\n}}];\n"
+      }
+    },
+    {
+      "id": "05f4a2fe-c506-4c6c-8d90-2b15db00f5d2",
+      "name": "Prepare DB Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        300
+      ],
+      "parameters": {
+        "jsCode": "\nconst ctx = $input.first().json;\nconst body = JSON.stringify({\n  operation: ctx.operation,\n  db_system: ctx.db_system,\n  session_id: ctx.session_id,\n  user_id: ctx.user_id,\n  table: ctx.table,\n  data: ctx.data,\n  where: ctx.where,\n  query: ctx.query,\n  metadata: ctx.metadata\n});\nreturn [{ json: { body } }];\n"
+      }
+    },
+    {
+      "id": "4b2fa70b-9aa8-4f95-9fc8-fac6c05ff6d8",
+      "name": "Call Database Backend",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        700,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.BACKEND_API_URL }}/api/database/execute",
+        "options": {},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.body }}"
+      }
+    },
+    {
+      "id": "1fe06dd3-3e7c-41e7-a8de-d12ff124fa39",
+      "name": "Format Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        900,
+        300
+      ],
+      "parameters": {
+        "jsCode": "\nconst input = $input.first().json;\nconst metadata = input.metadata || {};\nif (input.operation === 'memory_get') {\n  return [{ json: { memory: input.memory || [], metadata } }];\n}\nreturn [{ json: { status: input.status || 'success', result: input.result, metadata } }];\n"
+      }
+    },
+    {
+      "id": "794d5d81-fdb8-434b-be5c-f9aad86b8e9c",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1100,
+        300
+      ],
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Database Agent Trigger": {
+      "main": [
+        [
+          {
+            "node": "Extract Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Input": {
+      "main": [
+        [
+          {
+            "node": "Prepare DB Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare DB Request": {
+      "main": [
+        [
+          {
+            "node": "Call Database Backend",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Database Backend": {
+      "main": [
+        [
+          {
+            "node": "Format Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Response": {
+      "main": [
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    "database",
+    "agent"
+  ],
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "instanceId": "36d49aa4-b542-45cb-8d21-3d791255f220"
+  }
+}

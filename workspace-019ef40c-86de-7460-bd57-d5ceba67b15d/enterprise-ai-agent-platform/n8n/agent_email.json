@@ -1,0 +1,270 @@
+{
+  "name": "Email Agent - Specialized Agent",
+  "id": "79dd81c9-a992-4033-8513-3c0eee870d70",
+  "nodes": [
+    {
+      "id": "cb7bc581-8240-40c8-b010-0b0d3e6390a0",
+      "name": "Email Agent Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [
+        100,
+        300
+      ],
+      "webhookId": "9b7d12cb-3838-4e42-be69-2dd21d375884",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "agent/email",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "6a6de128-1173-4ca0-abe1-39eaa1643e82",
+      "name": "Extract Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        300,
+        300
+      ],
+      "parameters": {
+        "jsCode": "\nconst body = $json.body || $json;\nreturn [{ json: { request_id: body.request_id, user: body.user, role: body.role, payload: body.payload || {}, metadata: body.metadata || {} } }];\n"
+      }
+    },
+    {
+      "id": "4b9aec32-3510-4687-9ba1-2c34a1b6a912",
+      "name": "Prepare Email Prompt",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        500,
+        300
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "7f7f77bb-7630-4240-bb58-af6b13cf178f",
+              "name": "prompt",
+              "value": "={{ `Original request: ${$json.payload?.original_message || ''}\n\nParameters: ${JSON.stringify($json.payload?.parameters || {})}\n\nDetermine the email action and parameters.` }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "49ad93ed-0576-4235-96fa-3fcc353d85d0",
+      "name": "Email Reasoning",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1,
+      "position": [
+        700,
+        300
+      ],
+      "parameters": {
+        "resource": "chat",
+        "operation": "create",
+        "model": "gpt-4o-mini",
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "You are the Email Agent for an enterprise AI automation platform.\nCapabilities: read emails, categorize emails, extract tasks, generate draft responses, send emails, route emails, follow-up tracking.\nTools: Outlook, Gmail, SMTP.\nGiven the request, return ONLY a JSON object with keys: action (one of: read, categorize, extract_tasks, draft, send, route, followup), parameters, response."
+            },
+            {
+              "role": "user",
+              "content": "={{ $json.prompt }}"
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.2,
+          "maxTokens": 1200
+        }
+      },
+      "credentials": {
+        "openAiApi": {
+          "id": "OPENAI_CREDENTIAL",
+          "name": "OpenAI API"
+        }
+      }
+    },
+    {
+      "id": "d2177109-6539-4735-a6fb-06186703caf5",
+      "name": "Parse Action",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        900,
+        300
+      ],
+      "parameters": {
+        "jsCode": "\nconst raw = $json.message?.content || $json.choices?.[0]?.message?.content || $json;\nlet parsed = {};\ntry { parsed = typeof raw === 'string' ? JSON.parse(raw) : raw; } catch (e) {}\nconst ctx = $input.first().json;\nreturn [{ json: { ...ctx, ...parsed } }];\n"
+      }
+    },
+    {
+      "id": "5afccad7-b5cf-435a-82fa-fec3ac6c4e55",
+      "name": "Prepare Email Backend",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        300
+      ],
+      "parameters": {
+        "jsCode": "\nconst ctx = $input.first().json;\nconst body = JSON.stringify({ ...ctx.parameters, request_id: ctx.request_id, user: ctx.user, role: ctx.role, metadata: ctx.metadata });\nreturn [{ json: { ...ctx, body } }];\n"
+      }
+    },
+    {
+      "id": "fd4b1192-bc63-45de-b794-271bbc5a4a77",
+      "name": "Execute Email Action",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1300,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.BACKEND_API_URL }}/api/email/{{ $json.action }}",
+        "options": {},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.body }}"
+      }
+    },
+    {
+      "id": "1c54aacc-ea97-4441-a3c4-f6a2950e07e2",
+      "name": "Format Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1500,
+        300
+      ],
+      "parameters": {
+        "jsCode": "\nconst input = $input.first().json;\nreturn [{ json: { request_id: input.metadata?.request_id, status: input.status || 'success', result: input.result || input } }];\n"
+      }
+    },
+    {
+      "id": "fe0058d2-aa92-4038-ae05-2ed2a7760517",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1700,
+        300
+      ],
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Email Agent Trigger": {
+      "main": [
+        [
+          {
+            "node": "Extract Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Input": {
+      "main": [
+        [
+          {
+            "node": "Prepare Email Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Email Prompt": {
+      "main": [
+        [
+          {
+            "node": "Email Reasoning",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email Reasoning": {
+      "main": [
+        [
+          {
+            "node": "Parse Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Action": {
+      "main": [
+        [
+          {
+            "node": "Prepare Email Backend",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Email Backend": {
+      "main": [
+        [
+          {
+            "node": "Execute Email Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Email Action": {
+      "main": [
+        [
+          {
+            "node": "Format Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Response": {
+      "main": [
+        [
+          {
+            "node": "Respond",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    "email",
+    "agent"
+  ],
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "instanceId": "ac2ec84a-4355-412a-98d3-ed3a05bd7519"
+  }
+}

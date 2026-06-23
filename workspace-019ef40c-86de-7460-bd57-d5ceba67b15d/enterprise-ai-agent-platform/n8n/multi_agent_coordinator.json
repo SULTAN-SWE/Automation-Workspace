@@ -1,0 +1,163 @@
+{
+  "name": "Multi-Agent Coordinator",
+  "id": "64bc549d-7da0-4e96-9848-7aee45dcd825",
+  "nodes": [
+    {
+      "id": "9d633c5c-88a5-4957-aca9-11d139351655",
+      "name": "Coordinator Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [
+        100,
+        300
+      ],
+      "webhookId": "72bcb4be-d456-4243-bb97-d56a22becaa0",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "agent/coordinator",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "6bb24e23-1751-405c-9940-03887fb4ce5a",
+      "name": "Extract Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        300,
+        300
+      ],
+      "parameters": {
+        "jsCode": "\nconst body = $json.body || $json;\nreturn [{ json: {\n  request_id: body.metadata?.request_id,\n  user: body.metadata?.user,\n  role: body.metadata?.role,\n  session_id: body.metadata?.session_id,\n  selected_agents: body.selected_agents || [],\n  payload: body.payload || {},\n  metadata: body.metadata || {}\n}}];\n"
+      }
+    },
+    {
+      "id": "4e35a652-96d2-41b5-97c9-203bb0ca8640",
+      "name": "Build Agent Items",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        500,
+        300
+      ],
+      "parameters": {
+        "jsCode": "\nconst ctx = $input.first().json;\nconst agents = Array.isArray(ctx.selected_agents) ? ctx.selected_agents : [];\nconst items = agents.map(agent => ({\n  json: {\n    agent,\n    request_id: ctx.request_id,\n    user: ctx.user,\n    role: ctx.role,\n    session_id: ctx.session_id,\n    payload: ctx.payload,\n    metadata: ctx.metadata\n  }\n}));\nreturn items.length ? items : [{ json: { agent: \"knowledge\", request_id: ctx.request_id, user: ctx.user, role: ctx.role, session_id: ctx.session_id, payload: ctx.payload, metadata: ctx.metadata } }];\n"
+      }
+    },
+    {
+      "id": "a0d95a09-7ed4-4c6e-ad8d-bbff4e5fdc4e",
+      "name": "Call Agent",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        700,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.N8N_WEBHOOK_URL }}/agent/{{ $json.agent }}",
+        "options": {},
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ request_id: $json.request_id, user: $json.user, role: $json.role, session_id: $json.session_id, payload: $json.payload, metadata: $json.metadata }) }}"
+      }
+    },
+    {
+      "id": "6784a440-f0fc-40f0-b2d6-b733263ca9b8",
+      "name": "Aggregate Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        900,
+        300
+      ],
+      "parameters": {
+        "jsCode": "\nconst items = $input.all();\nconst results = {};\nitems.forEach(item => {\n  const agent = item.json.agent;\n  results[agent] = item.json;\n});\nconst first = items[0]?.json || {};\nreturn [{ json: { metadata: first.metadata || {}, results } }];\n"
+      }
+    },
+    {
+      "id": "3574a4b6-effb-48de-bbf2-dae785bf3543",
+      "name": "Return Results",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1100,
+        300
+      ],
+      "parameters": {
+        "respondWith": "allIncomingItems",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Coordinator Trigger": {
+      "main": [
+        [
+          {
+            "node": "Extract Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Input": {
+      "main": [
+        [
+          {
+            "node": "Build Agent Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Agent Items": {
+      "main": [
+        [
+          {
+            "node": "Call Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Agent": {
+      "main": [
+        [
+          {
+            "node": "Aggregate Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate Results": {
+      "main": [
+        [
+          {
+            "node": "Return Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    "coordinator"
+  ],
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "instanceId": "2a443458-a84d-4bcd-9b17-bc7d25dce494"
+  }
+}
