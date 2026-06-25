@@ -1,6 +1,6 @@
 # Enterprise AI Agent Automation Platform
 
-A production-ready, multi-agent enterprise AI automation platform built on an **Agent-Orchestrator architecture**. It uses **n8n** for workflow automation, **FastAPI** for business logic & integrations, **Microsoft SQL Server** for persistence, **OpenAI GPT models** for reasoning, and **React** for the employee chat interface.
+A production-ready, multi-agent enterprise AI automation platform built on an **Agent-Orchestrator architecture**. It uses **n8n** for workflow automation, **FastAPI** for business logic & integrations, **Microsoft SQL Server** for persistence, **OpenAI GPT models** for reasoning, and * *React** for the employee chat interface.
 
 ---
 
