@@ -20,6 +20,7 @@ from typing import Optional, List, Dict, Any
 import httpx
 import jwt
 from fastapi import FastAPI, Depends, HTTPException, status, Header
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, Text, DECIMAL, ForeignKey, text as sa_text
@@ -330,6 +331,14 @@ def require_role(*allowed_roles: str):
 # App
 # ---------------------------------------------------------------------------
 app = FastAPI(title="Enterprise AI Agent Platform", version="1.0.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @app.get("/health")
 def health():
